@@ -212,7 +212,7 @@ iframe{
         <span>Section 1 of 3</span>
       </div>
       <div class="frame-wrap">
-        <iframe id="heatmap-frame" src="/heatmap" loading="eager"></iframe>
+        <iframe id="heatmap-frame" src="heatmap" loading="eager"></iframe>
       </div>
     </section>
 
@@ -222,7 +222,7 @@ iframe{
         <span>Section 2 of 3</span>
       </div>
       <div class="frame-wrap">
-        <iframe id="future-frame" src="/future" loading="lazy"></iframe>
+        <iframe id="future-frame" src="future" loading="lazy"></iframe>
       </div>
     </section>
 
@@ -232,7 +232,7 @@ iframe{
         <span>Section 3 of 3</span>
       </div>
       <div class="frame-wrap">
-        <iframe id="oi-frame" src="/oi" loading="lazy"></iframe>
+        <iframe id="oi-frame" src="oi" loading="lazy"></iframe>
       </div>
     </section>
   </main>
@@ -481,17 +481,15 @@ window.__MERGED_DASHBOARD.setTheme("%s");
 def build_heatmap_html():
     html = heatmap.HTML
     html = html.replace('data-theme="dark"', 'data-theme="light"', 1)
-    html = html.replace('fetch("/api/data")', 'fetch("/heatmap/api/data")')
+    html = html.replace("/api/data", "/heatmap/api/data")
     return inject_child_overrides(html, "light")
 
 
 def build_future_html():
     html = future.HTML
     html = html.replace('<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=Barlow+Condensed:wght@400;600;700&display=swap" rel="stylesheet">', "")
-    html = html.replace("'/api/data/'", "'/future/api/data/'")
-    html = html.replace('"/api/data/', '"/future/api/data/')
-    html = html.replace("'/api/stream/'", "'/future/api/stream/'")
-    html = html.replace('"/api/stream/', '"/future/api/stream/')
+    html = html.replace("/api/data/", "/future/api/data/")
+    html = html.replace("/api/stream/", "/future/api/stream/")
     return inject_child_overrides(html, "light")
 
 
