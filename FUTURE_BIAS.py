@@ -200,40 +200,43 @@ def index():
 
 @app.route("/api/data/<iv>")
 def api_data(iv):
-    if iv not in INTERVALS:
-        return jsonify({"error": "bad interval"}), 400
-    mode = request.args.get("mode", "close")
-    if mode not in ("close", "open"): mode = "close"
-
-    ds    = request.args.get("date", "")
-    today = datetime.date.today()
     try:
-        req_date = datetime.date.fromisoformat(ds) if ds else today
-    except ValueError:
-        req_date = today
-    is_today = req_date == today
+        if iv not in INTERVALS:
+            return jsonify({"error": "bad interval"}), 400
+        mode = request.args.get("mode", "close")
+        if mode not in ("close", "open"): mode = "close"
 
-    if is_today:
-        with _cache_lock:
-            candles, ts = _raw_cache[iv], _cache_ts[iv]
-        if not candles:
-            candles = _fetch_raw(iv, today)
-            now = datetime.datetime.now()
+        ds    = request.args.get("date", "")
+        today = datetime.date.today()
+        try:
+            req_date = datetime.date.fromisoformat(ds) if ds else today
+        except ValueError:
+            req_date = today
+        is_today = req_date == today
+
+        if is_today:
             with _cache_lock:
-                _raw_cache[iv] = candles
-                _cache_ts[iv]  = now
-            ts = now
-    else:
-        candles = _fetch_raw(iv, req_date)
-        ts = None
+                candles, ts = _raw_cache[iv], _cache_ts[iv]
+            if not candles:
+                candles = _fetch_raw(iv, today)
+                now = datetime.datetime.now()
+                with _cache_lock:
+                    _raw_cache[iv] = candles
+                    _cache_ts[iv]  = now
+                ts = now
+        else:
+            candles = _fetch_raw(iv, req_date)
+            ts = None
 
-    rows = build_rows(candles, mode)
-    return jsonify({
-        "rows":      rows,
-        "cached_at": ts.strftime("%H:%M:%S") if ts else req_date.isoformat(),
-        "row_count": len(rows),
-        "is_today":  is_today,
-    })
+        rows = build_rows(candles, mode)
+        return jsonify({
+            "rows":      rows,
+            "cached_at": ts.strftime("%H:%M:%S") if ts else req_date.isoformat(),
+            "row_count": len(rows),
+            "is_today":  is_today,
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 
 @app.route("/api/stream/<iv>")
@@ -569,8 +572,7 @@ tr:hover td{background:var(--row-hover)}
       (isToday(currentDate) ? ' today' : ' ' + fmtDate(currentDate)) + '&hellip;</div>';
 
     var url = '/api/data/' + iv + '?mode=' + currentMode + '&date=' + currentDate;
-    fetch(url)
-      .then(function (r) { return r.json(); })
+    fetchJson(url)
       .then(function (json) {
         if (json.error) throw new Error(json.error);
         var rows = json.rows || [];
@@ -601,8 +603,7 @@ tr:hover td{background:var(--row-hover)}
       bustToday(iv);
       // Pre-fetch both modes silently for this interval
       ['close', 'open'].forEach(function (m) {
-        fetch('/api/data/' + iv + '?mode=' + m + '&date=' + currentDate)
-          .then(function (r) { return r.json(); })
+        fetchJson('/api/data/' + iv + '?mode=' + m + '&date=' + currentDate)
           .then(function (json) {
             if (json.error) return;
             cache[ck(iv, currentDate, m)] = { rows: json.rows || [], cached_at: json.cached_at };
@@ -626,6 +627,21 @@ tr:hover td{background:var(--row-hover)}
       delete sseMap[iv];
       setTimeout(function () { connectOne(iv); }, 5000);
     };
+  }
+
+  function fetchJson(url) {
+    return fetch(url).then(function (r) {
+      return r.text().then(function (text) {
+        try {
+          return JSON.parse(text);
+        } catch (err) {
+          if (!r.ok) {
+            throw new Error('HTTP ' + r.status + ' from ' + url);
+          }
+          throw new Error('Server returned non-JSON response for ' + url);
+        }
+      });
+    });
   }
 
   function connectAllSSE() {
