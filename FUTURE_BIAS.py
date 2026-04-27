@@ -22,6 +22,7 @@ Fixes:
 from flask import Flask, jsonify, render_template_string, Response, request
 from kiteconnect import KiteConnect
 import datetime, threading, time, logging, queue
+from zoneinfo import ZoneInfo
 
 # ── Credentials ──────────────────────────────────────────────────────────────
 API_KEY      = ""
@@ -31,6 +32,7 @@ FETCH_DELAY_SECONDS = 10   # seconds after candle close before fetching
 
 app  = Flask(__name__)
 kite = None
+MARKET_TZ = ZoneInfo("Asia/Kolkata")
 
 INTERVALS = {
     "1min":  {"kite": "minute",   "minutes": 1},
@@ -79,6 +81,14 @@ def ensure_kite():
     return kite
 
 
+def market_now():
+    return datetime.datetime.now(MARKET_TZ).replace(tzinfo=None)
+
+
+def market_today():
+    return market_now().date()
+
+
 def _notify(interval_key, ts_str):
     with _subscribers_lock:
         dead = []
@@ -90,7 +100,7 @@ def _notify(interval_key, ts_str):
 
 
 def _next_fire(minutes):
-    now      = datetime.datetime.now()
+    now      = market_now()
     now_s    = now.hour * 3600 + now.minute * 60 + now.second
     anchor   = 9 * 3600 + 15 * 60
     step     = minutes * 60
@@ -113,13 +123,13 @@ def _refresh_loop(key):
     minutes = INTERVALS[key]["minutes"]
     while True:
         fire_at   = _next_fire(minutes)
-        sleep_sec = (fire_at - datetime.datetime.now()).total_seconds()
+        sleep_sec = (fire_at - market_now()).total_seconds()
         logging.info("[%s] next fetch at %s (%.1fs)", key, fire_at.strftime("%H:%M:%S"), sleep_sec)
         if sleep_sec > 0:
             time.sleep(sleep_sec)
         try:
-            candles = _fetch_raw(key, datetime.date.today())
-            now     = datetime.datetime.now()
+            candles = _fetch_raw(key, market_today())
+            now     = market_now()
             with _cache_lock:
                 _raw_cache[key] = candles
                 _cache_ts[key]  = now
@@ -153,9 +163,9 @@ def _fetch_raw(key, date):
     token = _get_token(date)
     if not token:
         return []
-    today = datetime.date.today()
+    today = market_today()
     from_dt = datetime.datetime.combine(date, datetime.time(9, 15))
-    to_dt   = datetime.datetime.now() if date == today else \
+    to_dt   = market_now() if date == today else \
               datetime.datetime.combine(date, datetime.time(15, 30))
     candles = client.historical_data(token, from_dt, to_dt, INTERVALS[key]["kite"], oi=True)
     if date == today and len(candles) > 1:
@@ -207,7 +217,7 @@ def api_data(iv):
         if mode not in ("close", "open"): mode = "close"
 
         ds    = request.args.get("date", "")
-        today = datetime.date.today()
+        today = market_today()
         try:
             req_date = datetime.date.fromisoformat(ds) if ds else today
         except ValueError:
@@ -219,7 +229,7 @@ def api_data(iv):
                 candles, ts = _raw_cache[iv], _cache_ts[iv]
             if not candles:
                 candles = _fetch_raw(iv, today)
-                now = datetime.datetime.now()
+                now = market_now()
                 with _cache_lock:
                     _raw_cache[iv] = candles
                     _cache_ts[iv]  = now
@@ -779,11 +789,11 @@ if __name__ == "__main__":
     print("=" * 55)
     print("  Nifty Futures OI Dashboard")
     print("  Warming up today's cache...")
-    today = datetime.date.today()
+    today = market_today()
     for k in INTERVALS:
         try:
             candles = _fetch_raw(k, today)
-            now = datetime.datetime.now()
+            now = market_now()
             with _cache_lock:
                 _raw_cache[k] = candles
                 _cache_ts[k]  = now
@@ -797,7 +807,7 @@ if __name__ == "__main__":
         t = threading.Thread(target=_refresh_loop, args=(k,), daemon=True, name="refresh-"+k)
         t.start()
         fire_at   = _next_fire(INTERVALS[k]["minutes"])
-        sleep_sec = (fire_at - datetime.datetime.now()).total_seconds()
+        sleep_sec = (fire_at - market_now()).total_seconds()
         print("  {:<8}  {:>12}  {:>9.1f}s".format(k, fire_at.strftime("%H:%M:%S"), sleep_sec))
 
     print("\n  http://localhost:5001")
